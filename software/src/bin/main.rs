@@ -21,6 +21,8 @@ use trouble_host::prelude::*;
 use esp_hal::i2c::master::Config as I2cConfig;
 use esp_hal::i2c::master::I2c;
 
+use esp_hal::gpio::{Input, InputConfig};
+
 use esp_hal::twai::{BaudRate, EspTwaiFrame, StandardId, TwaiConfiguration, TwaiMode};
 use embedded_can::Frame;
 
@@ -74,6 +76,11 @@ async fn main(spawner: Spawner) -> ! {
         .with_scl(peripherals.GPIO38)
         .into_async();
 
+    let rtc_int_pin = Input::new(
+        peripherals.GPIO40, 
+        InputConfig::default()
+    );
+
     // ---- 初始化 TWAI (CAN) ----
     let twai_config = TwaiConfiguration::new(
         peripherals.TWAI0,
@@ -90,7 +97,7 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(task_net(spawner, peripherals.WIFI).unwrap());
 
     // 其他任务（按需启用）
-    spawner.spawn(task_rtc(i2c).unwrap());
+    spawner.spawn(task_rtc(i2c, rtc_int_pin).unwrap());
     // spawner.spawn(task_can(twai).unwrap());
     // spawner.spawn(task_rs485().unwrap());
     // spawner.spawn(task_ble().unwrap());

@@ -1,5 +1,6 @@
+// src/app/task_rtc.rs
 use esp_hal::i2c::master::I2c;
-use embassy_time::{Duration, Timer};
+use esp_hal::gpio::Input;
 use defmt::{error, info, Debug2Format};
 use embassy_sync::channel::Channel;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -9,21 +10,29 @@ pub static RTC_TIME_CHANNEL: Channel<CriticalSectionRawMutex, u64, 1> = Channel:
 pub static SET_TIME_CHANNEL: Channel<CriticalSectionRawMutex, u64, 1> = Channel::new();
 
 #[embassy_executor::task]
-pub async fn task_rtc(i2c: I2c<'static, esp_hal::Async>) -> ! {
+pub async fn task_rtc(
+    i2c: I2c<'static, esp_hal::Async>,
+    mut rtc_int_pin: Input<'static>,
+) -> ! {
     let mut rtc = pcf85063a::PCF85063::new(i2c);
 
     use time::{Date, Month, PrimitiveDateTime, Time};
 
-    let now = PrimitiveDateTime::new(
-        Date::from_calendar_date(2021, Month::April, 4).unwrap(),
-        Time::from_hms(16, 52, 0).unwrap(),
-    );
-    rtc.set_datetime(&now).await.unwrap();
+    // // 上电初始时间
+    // let now = PrimitiveDateTime::new(
+    //     Date::from_calendar_date(2021, Month::April, 4).unwrap(),
+    //     Time::from_hms(16, 52, 0).unwrap(),
+    // );
+    // rtc.set_datetime(&now).await.unwrap();
+    
+    // 开1HZ脉冲INT， TCF=1Hz, TE=1, TIE=1, TI_TP=0 → 0x16
+    rtc.write_register(0x11, 0x16).await.unwrap();
+    rtc.write_register(0x10, 0x01).await.unwrap();
 
     loop {
         match select(
-            SET_TIME_CHANNEL.receive(),        // Future 1: 有设置请求就返回 u64
-            Timer::after(Duration::from_secs(1)), // Future 2: 1秒后返回 ()
+            SET_TIME_CHANNEL.receive(),
+            rtc_int_pin.wait_for_low(), // 等待 INT 引脚变低（每秒一次）
         ).await {
             // 收到设置时间的请求
             Either::First(ts) => {
@@ -44,11 +53,17 @@ pub async fn task_rtc(i2c: I2c<'static, esp_hal::Async>) -> ! {
                     Err(e) => error!("invalid unix ts: {:?}", Debug2Format(&e)),
                 }
             }
-            // 1秒定时到了，正常读取 RTC 推给网页
+            // INT 引脚脉冲到来，说明又过了一秒
             Either::Second(_) => {
+                // 读秒寄存器，顺带清除 Timer Flag
+                let ctrl2 = rtc.read_register(0x01).await.unwrap();
+                rtc.write_register(0x01, ctrl2 & !(1 << 3)).await.unwrap();
+
                 let t = rtc.get_datetime().await.unwrap();
                 let ts = t.assume_utc().unix_timestamp() as u64;
                 let _ = RTC_TIME_CHANNEL.try_send(ts);
+
+                info!("one secound");
             }
         }
     }
