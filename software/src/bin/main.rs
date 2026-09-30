@@ -21,13 +21,14 @@ use trouble_host::prelude::*;
 use esp_hal::i2c::master::Config as I2cConfig;
 use esp_hal::i2c::master::I2c;
 
-use esp_hal::gpio::{Input, InputConfig};
-
 use esp_hal::twai::{BaudRate, EspTwaiFrame, StandardId, TwaiConfiguration, TwaiMode};
 use embedded_can::Frame;
 
+use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig};
+
 use wx_esp32s3::app::task_net::task_net;
 use wx_esp32s3::app::task_rtc::task_rtc;
+use wx_esp32s3::app::task_rs485::task_rs485;
 
 #[panic_handler]
 fn panic(panic_info: &core::panic::PanicInfo) -> ! {
@@ -81,6 +82,19 @@ async fn main(spawner: Spawner) -> ! {
         InputConfig::default()
     );
 
+    // ---- 初始化 RS485 (UART1 + DE 方向脚) ----
+    let uart_cfg = esp_hal::uart::Config::default().with_baudrate(9600);
+    let uart = esp_hal::uart::Uart::new(peripherals.UART1, uart_cfg)
+        .unwrap()
+        .with_tx(peripherals.GPIO17)
+        .with_rx(peripherals.GPIO18)
+        .into_async();
+    let de = Output::new(
+        peripherals.GPIO21,
+        Level::Low,
+        OutputConfig::default(),   // ★ 补上
+    );
+
     // ---- 初始化 TWAI (CAN) ----
     let twai_config = TwaiConfiguration::new(
         peripherals.TWAI0,
@@ -91,15 +105,11 @@ async fn main(spawner: Spawner) -> ! {
     );
     let twai = twai_config.into_async().start();
 
-    // ---- 启动网络任务 ----
-    // task_net 内部完成 Wi-Fi 初始化 + 连接 + DHCP，
-    // 并自己 spawn task_web，把 Stack 传过去。
+    // ---- 启动任务 ----
     spawner.spawn(task_net(spawner, peripherals.WIFI).unwrap());
-
-    // 其他任务（按需启用）
     spawner.spawn(task_rtc(i2c, rtc_int_pin).unwrap());
+    spawner.spawn(task_rs485(uart, de).unwrap());
     // spawner.spawn(task_can(twai).unwrap());
-    // spawner.spawn(task_rs485().unwrap());
     // spawner.spawn(task_ble().unwrap());
 
     let _ = i2c;
@@ -138,14 +148,6 @@ async fn task_can(mut twai: esp_hal::twai::Twai<'static, esp_hal::Async>) -> ! {
             Err(_) => {}
         }
 
-        Timer::after(Duration::from_secs(1)).await;
-    }
-}
-
-#[embassy_executor::task]
-async fn task_rs485() -> ! {
-    loop {
-        info!("rs485 loop");
         Timer::after(Duration::from_secs(1)).await;
     }
 }

@@ -13,7 +13,7 @@ const WIFI_NAME: &str = "rayrobot";
 const WIFI_PASSWORD: &str = "Rayrobot123";
 
 // 网络栈资源（静态存储，保证 'static 生命周期）
-static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+static RESOURCES: StaticCell<StackResources<5>> = StaticCell::new();
 
 #[embassy_executor::task]
 pub async fn task_net(

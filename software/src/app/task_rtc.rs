@@ -5,6 +5,7 @@ use defmt::{error, info, Debug2Format};
 use embassy_sync::channel::Channel;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_futures::select::{select, Either};
+use time::PrimitiveDateTime;
 
 pub static RTC_TIME_CHANNEL: Channel<CriticalSectionRawMutex, u64, 1> = Channel::new();
 pub static SET_TIME_CHANNEL: Channel<CriticalSectionRawMutex, u64, 1> = Channel::new();
@@ -15,8 +16,6 @@ pub async fn task_rtc(
     mut rtc_int_pin: Input<'static>,
 ) -> ! {
     let mut rtc = pcf85063a::PCF85063::new(i2c);
-
-    use time::{Date, Month, PrimitiveDateTime, Time};
 
     // // 上电初始时间
     // let now = PrimitiveDateTime::new(
@@ -63,7 +62,7 @@ pub async fn task_rtc(
                 let ts = t.assume_utc().unix_timestamp() as u64;
                 let _ = RTC_TIME_CHANNEL.try_send(ts);
 
-                info!("one secound");
+                // info!("one secound");
             }
         }
     }
